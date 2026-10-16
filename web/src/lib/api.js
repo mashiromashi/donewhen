@@ -142,6 +142,7 @@ export const api = {
 	labels: () => request('GET', '/labels'),
 	labelGroups: () => request('GET', '/label-groups'),
 	createLabel: (b) => request('POST', '/labels', b),
+	moveLabel: (id, groupId) => request('PATCH', `/labels/${id}`, { groupId }),
 
 	// initiatives / projects
 	initiatives: () => request('GET', '/initiatives'),

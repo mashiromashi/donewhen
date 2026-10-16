@@ -62,6 +62,32 @@ func (s *Server) handleCreateLabel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, l)
 }
 
+// handleMoveLabel moves a label to another group; a null groupId ungroups it.
+// The field is required: an absent groupId is not a null one.
+func (s *Server) handleMoveLabel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		GroupID json.RawMessage `json:"groupId"`
+	}
+	if err := readJSON(r, &body); err != nil || len(body.GroupID) == 0 {
+		writeErr(w, http.StatusBadRequest, "groupId required")
+		return
+	}
+	var groupID *string
+	if string(body.GroupID) != "null" {
+		var g string
+		if err := json.Unmarshal(body.GroupID, &g); err != nil {
+			writeErr(w, http.StatusBadRequest, "groupId must be a string or null")
+			return
+		}
+		groupID = &g
+	}
+	l, err := s.store.MoveLabel(r.Context(), ws(r), r.PathValue("id"), groupID)
+	if handleStoreErr(w, err) {
+		return
+	}
+	writeJSON(w, 200, l)
+}
+
 // ---- initiatives ----
 
 func (s *Server) handleListInitiatives(w http.ResponseWriter, r *http.Request) {

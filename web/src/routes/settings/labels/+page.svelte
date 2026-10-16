@@ -1,5 +1,6 @@
 <script>
 	import { api } from '$lib/api.js';
+	import { labels as sharedLabels } from '$lib/store.js';
 	import { showToast } from '$lib/ui.js';
 
 	// Matches the exclusive-group taxonomy in AGENTS.md: these sort first, in
@@ -37,12 +38,15 @@
 		for (const l of labels) {
 			const g = l.groupId ? byId.get(l.groupId) : null;
 			const gname = g?.name || 'ungrouped';
-			if (!byName.has(gname)) byName.set(gname, { name: gname, exclusive: g?.exclusive ?? false, items: [] });
+			if (!byName.has(gname)) byName.set(gname, { id: g?.id ?? null, name: gname, exclusive: g?.exclusive ?? false, items: [] });
 			byName.get(gname).items.push(l);
 		}
+		// The ungrouped section always renders: it is a drop target even when
+		// no label is ungrouped yet.
+		if (!byName.has('ungrouped')) byName.set('ungrouped', { id: null, name: 'ungrouped', exclusive: false, items: [] });
 		// Include a known group even with zero labels yet, so "+ Add label" is
 		// reachable for it.
-		for (const g of groups) if (!byName.has(g.name)) byName.set(g.name, { name: g.name, exclusive: g.exclusive, items: [] });
+		for (const g of groups) if (!byName.has(g.name)) byName.set(g.name, { id: g.id, name: g.name, exclusive: g.exclusive, items: [] });
 		const rows = [...byName.values()];
 		rows.sort((a, b) => {
 			const ai = CANON_ORDER.indexOf(a.name);
@@ -78,6 +82,49 @@
 			adding = false;
 		}
 	}
+
+	let dragId = $state(null);
+	let overName = $state('');
+
+	function dragStart(e, l) {
+		dragId = l.id;
+		e.dataTransfer.setData('text/plain', l.id);
+		e.dataTransfer.effectAllowed = 'move';
+	}
+	function dragEnd() {
+		dragId = null;
+		overName = '';
+	}
+	function dragOver(e, row) {
+		if (!dragId) return;
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'move';
+		overName = row.name;
+	}
+	function dragLeave(e) {
+		// dragleave also fires at child boundaries; only clear when the pointer
+		// left the section for real.
+		if (!e.currentTarget.contains(e.relatedTarget)) overName = '';
+	}
+	async function drop(e, row) {
+		e.preventDefault();
+		overName = '';
+		const id = e.dataTransfer.getData('text/plain') || dragId;
+		dragId = null;
+		const label = labels.find((l) => l.id === id);
+		if (!label) return;
+		const groupId = row.id;
+		if ((label.groupId ?? null) === groupId) return;
+		const prev = label.groupId;
+		label.groupId = groupId;
+		try {
+			await api.moveLabel(id, groupId);
+			sharedLabels.update((ls) => ls.map((x) => (x.id === id ? { ...x, groupId } : x)));
+		} catch (e2) {
+			label.groupId = prev;
+			showToast('Could not move label: ' + (e2?.message || e2), 'error');
+		}
+	}
 </script>
 
 <div class="settings-wrap">
@@ -90,17 +137,31 @@
 		<p class="settings-hint">Loading…</p>
 	{:else}
 		{#each groupRows as row (row.name)}
-			<section class="settings-panel">
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<section
+				class="settings-panel"
+				class:drop-hint={overName === row.name}
+				ondragover={(e) => dragOver(e, row)}
+				ondragleave={dragLeave}
+				ondrop={(e) => drop(e, row)}
+			>
 				<div class="settings-panel-h">
-					{row.name}{#if row.exclusive}<span class="n">exclusive</span>{/if}
+					{row.name === 'ungrouped' ? '(no group)' : row.name}{#if row.exclusive}<span class="n">exclusive</span>{/if}
 				</div>
 				<div class="settings-inline">
 					{#each row.items as l (l.id)}
-						<span class="pill"><span class="dot" style="background:{l.color}"></span>{l.name}</span>
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<span
+							class="pill"
+							class:dragging={dragId === l.id}
+							draggable="true"
+							ondragstart={(e) => dragStart(e, l)}
+							ondragend={dragEnd}
+						><span class="dot" style="background:{l.color}"></span>{l.name}</span>
 					{:else}
 						<span class="settings-hint">No labels yet.</span>
 					{/each}
-					<button class="btn ghost settings-btn-sm" onclick={() => startAdd(row.name)}>+ Add label</button>
+					<button class="btn ghost settings-btn-sm" onclick={() => startAdd(row.name === 'ungrouped' ? '' : row.name)}>+ Add label</button>
 				</div>
 			</section>
 		{/each}

@@ -346,6 +346,9 @@ select {
 	border: 1px solid var(--line);
 	white-space: nowrap;
 }
+.pill.dragging {
+	opacity: 0.5;
+}
 .dot {
 	width: 6px;
 	height: 6px;
@@ -549,6 +552,11 @@ select {
 	display: flex;
 	flex-direction: column;
 	gap: 14px;
+}
+.settings-panel.drop-hint {
+	border-color: var(--line-strong);
+	border-style: dashed;
+	background: var(--hover);
 }
 .settings-panel-h {
 	display: flex;
