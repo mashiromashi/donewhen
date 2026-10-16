@@ -153,6 +153,56 @@ func (s *Store) CreateLabel(ctx context.Context, wsID, name, color, groupName st
 	return l, err
 }
 
+// MoveLabel moves a label to another group (nil: no group). The group_id FK
+// does not know about workspaces, so a group from another workspace is
+// rejected here explicitly.
+func (s *Store) MoveLabel(ctx context.Context, wsID, labelID string, groupID *string) (models.Label, error) {
+	if groupID != nil {
+		var exclusive bool
+		err := s.pool.QueryRow(ctx,
+			`SELECT exclusive FROM label_groups WHERE id=$1 AND workspace_id=$2`, *groupID, wsID).Scan(&exclusive)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.Label{}, invalid("label group %q not found in this workspace", *groupID)
+		}
+		if err != nil {
+			return models.Label{}, err
+		}
+		if exclusive {
+			// Exclusivity is enforced when labels are assigned; a move would
+			// strand issues and documents already carrying this label next to
+			// a sibling of the target group, so refuse those moves here.
+			var clash bool
+			err = s.pool.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM issue_labels mine
+					JOIN issue_labels other ON other.issue_id = mine.issue_id
+					JOIN labels sib ON sib.id = other.label_id
+					WHERE mine.label_id = $1 AND sib.group_id = $2 AND sib.id <> $1
+				) OR EXISTS (
+					SELECT 1 FROM document_labels mine
+					JOIN document_labels other ON other.document_id = mine.document_id
+					JOIN labels sib ON sib.id = other.label_id
+					WHERE mine.label_id = $1 AND sib.group_id = $2 AND sib.id <> $1
+				)`, labelID, *groupID).Scan(&clash)
+			if err != nil {
+				return models.Label{}, err
+			}
+			if clash {
+				return models.Label{}, invalid("an issue or document already carries this label with another label of exclusive group %q", *groupID)
+			}
+		}
+	}
+	var l models.Label
+	err := s.pool.QueryRow(ctx,
+		`UPDATE labels SET group_id=$3 WHERE id=$1 AND workspace_id=$2
+		 RETURNING id, group_id, name, color`,
+		labelID, wsID, groupID).Scan(&l.ID, &l.GroupID, &l.Name, &l.Color)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return l, ErrNotFound
+	}
+	return l, err
+}
+
 // resolveLabelIDsTx turns a mix of label ids and label names into a concrete id
 // set within one workspace, creating labels by name on the fly, and enforcing
 // exclusive groups (keeping the last label seen for any exclusive group).

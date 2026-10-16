@@ -216,6 +216,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/labels", s.wsGuard(s.handleListLabels))
 	mux.HandleFunc("GET /api/label-groups", s.wsGuard(s.handleListLabelGroups))
 	mux.HandleFunc("POST /api/labels", s.wsGuard(s.handleCreateLabel))
+	mux.HandleFunc("PATCH /api/labels/{id}", s.wsGuard(s.handleMoveLabel))
 
 	// Initiatives.
 	mux.HandleFunc("GET /api/initiatives", s.wsGuard(s.handleListInitiatives))
